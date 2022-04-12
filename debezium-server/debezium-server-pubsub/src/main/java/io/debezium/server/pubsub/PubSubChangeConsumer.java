@@ -6,10 +6,7 @@
 package io.debezium.server.pubsub;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.PostConstruct;
@@ -66,6 +63,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
 
     private static final String PROP_PREFIX = "debezium.sink.pubsub.";
     private static final String PROP_PROJECT_ID = PROP_PREFIX + "project.id";
+    private static final String EMULATOR_HOSTPORT_ID = PROP_PREFIX + "emulator.hostport";
 
     public static interface PublisherBuilder {
         Publisher get(ProjectTopicName topicName);
@@ -79,9 +77,6 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
 
     @ConfigProperty(name = PROP_PREFIX + "ordering.enabled", defaultValue = "true")
     boolean orderingEnabled;
-
-    @ConfigProperty(name = PROP_PREFIX + "emulator.host", defaultValue = "")
-    String emulatorHost;
 
     @ConfigProperty(name = PROP_PREFIX + "null.key", defaultValue = "default")
     String nullKey;
@@ -133,6 +128,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
     void connect() {
         final Config config = ConfigProvider.getConfig();
         projectId = config.getOptionalValue(PROP_PROJECT_ID, String.class).orElse(ServiceOptions.getDefaultProjectId());
+        final Optional<String> emulatorHostPort = config.getOptionalValue(EMULATOR_HOSTPORT_ID, String.class);
 
         if (customPublisherBuilder.isResolvable()) {
             publisherBuilder = customPublisherBuilder.get();
@@ -140,18 +136,9 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
             return;
         }
 
-        if (emulatorHost != null && !emulatorHost.isEmpty()) {
-            LOGGER.info("Using settings for pub/sub emulator at '{}'", emulatorHost);
-            channel = ManagedChannelBuilder.forTarget(emulatorHost).usePlaintext().build();
-        }
-
-        try {
-            TransportChannelProvider channelProvider = FixedTransportChannelProvider.create(GrpcTransportChannel.create(channel));
-            CredentialsProvider credentialsProvider = NoCredentialsProvider.create();
-
-        }
-        finally {
-            channel.shutdown();
+        if (emulatorHostPort.isPresent()) {
+            LOGGER.info("Using settings for pub/sub emulator at '{}'", emulatorHostPort.get());
+            channel = ManagedChannelBuilder.forTarget(emulatorHostPort.get()).usePlaintext().build();
         }
 
         BatchingSettings.Builder batchingSettings = BatchingSettings.newBuilder()
