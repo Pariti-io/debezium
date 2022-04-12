@@ -31,12 +31,20 @@ import com.google.api.core.ApiFutures;
 import com.google.api.gax.batching.BatchingSettings;
 import com.google.api.gax.batching.FlowControlSettings;
 import com.google.api.gax.batching.FlowController;
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.core.NoCredentialsProvider;
+import com.google.api.gax.grpc.GrpcTransportChannel;
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.gax.rpc.FixedTransportChannelProvider;
+import com.google.api.gax.rpc.TransportChannelProvider;
 import com.google.cloud.ServiceOptions;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.ProjectTopicName;
 import com.google.pubsub.v1.PubsubMessage;
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 
 import io.debezium.DebeziumException;
 import io.debezium.engine.ChangeEvent;
@@ -49,7 +57,6 @@ import io.debezium.server.CustomConsumerBuilder;
  * Implementation of the consumer that delivers the messages into Google Pub/Sub destination.
  *
  * @author Jiri Pechanec
- *
  */
 @Named("pubsub")
 @Dependent
@@ -67,10 +74,14 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
     private String projectId;
 
     private final Map<String, Publisher> publishers = new HashMap<>();
+    private ManagedChannel channel;
     private PublisherBuilder publisherBuilder;
 
     @ConfigProperty(name = PROP_PREFIX + "ordering.enabled", defaultValue = "true")
     boolean orderingEnabled;
+
+    @ConfigProperty(name = PROP_PREFIX + "emulator.host", defaultValue = "")
+    String emulatorHost;
 
     @ConfigProperty(name = PROP_PREFIX + "null.key", defaultValue = "default")
     String nullKey;
@@ -129,6 +140,20 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
             return;
         }
 
+        if (emulatorHost != null && !emulatorHost.isEmpty()) {
+            LOGGER.info("Using settings for pub/sub emulator at '{}'", emulatorHost);
+            channel = ManagedChannelBuilder.forTarget(emulatorHost).usePlaintext().build();
+        }
+
+        try {
+            TransportChannelProvider channelProvider = FixedTransportChannelProvider.create(GrpcTransportChannel.create(channel));
+            CredentialsProvider credentialsProvider = NoCredentialsProvider.create();
+
+        }
+        finally {
+            channel.shutdown();
+        }
+
         BatchingSettings.Builder batchingSettings = BatchingSettings.newBuilder()
                 .setDelayThreshold(Duration.ofMillis(maxDelayThresholdMs))
                 .setElementCountThreshold(maxBufferSize)
@@ -144,7 +169,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
 
         publisherBuilder = (t) -> {
             try {
-                return Publisher.newBuilder(t)
+                Publisher.Builder builder = Publisher.newBuilder(t)
                         .setEnableMessageOrdering(orderingEnabled)
                         .setBatchingSettings(batchingSettings.build())
                         .setRetrySettings(
@@ -156,8 +181,18 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
                                         .setMaxRetryDelay(Duration.ofMillis(maxRetryDelay))
                                         .setInitialRpcTimeout(Duration.ofMillis(initialRpcTimeout))
                                         .setRpcTimeoutMultiplier(rpcTimeoutMultiplier)
-                                        .build())
-                        .build();
+                                        .build());
+
+                // We're using a custom channel (for local emulator), do some more
+                if (channel != null) {
+                    TransportChannelProvider channelProvider = FixedTransportChannelProvider.create(GrpcTransportChannel.create(channel));
+                    CredentialsProvider credentialsProvider = NoCredentialsProvider.create();
+                    builder
+                            .setChannelProvider(channelProvider)
+                            .setCredentialsProvider(credentialsProvider);
+                }
+
+                return builder.build();
             }
             catch (IOException e) {
                 throw new DebeziumException(e);
@@ -177,6 +212,11 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
                 LOGGER.warn("Exception while closing publisher: {}", e);
             }
         });
+
+        if (channel != null) {
+            channel.shutdown();
+            channel = null;
+        }
     }
 
     @Override
