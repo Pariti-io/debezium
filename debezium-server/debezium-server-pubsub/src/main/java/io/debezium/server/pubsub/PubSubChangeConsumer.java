@@ -16,6 +16,10 @@ import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import javax.inject.Named;
 
+import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminSettings;
+import com.google.pubsub.v1.Topic;
+import io.grpc.Status;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -64,8 +68,9 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
     private static final String PROP_PREFIX = "debezium.sink.pubsub.";
     private static final String PROP_PROJECT_ID = PROP_PREFIX + "project.id";
     private static final String EMULATOR_HOSTPORT_ID = PROP_PREFIX + "emulator.hostport";
+    private static final String AUTO_CREATE_TOPIC_ID = PROP_PREFIX + "topics.autocreate";
 
-    public static interface PublisherBuilder {
+    public interface PublisherBuilder {
         Publisher get(ProjectTopicName topicName);
     }
 
@@ -73,6 +78,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
 
     private final Map<String, Publisher> publishers = new HashMap<>();
     private ManagedChannel channel;
+    private TopicAdminClient topicClient;
     private PublisherBuilder publisherBuilder;
 
     @ConfigProperty(name = PROP_PREFIX + "ordering.enabled", defaultValue = "true")
@@ -141,6 +147,27 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
             channel = ManagedChannelBuilder.forTarget(emulatorHostPort.get()).usePlaintext().build();
         }
 
+        final boolean autoCreateTopic = config.getOptionalValue(AUTO_CREATE_TOPIC_ID, Boolean.class).orElse(false);
+        if (autoCreateTopic) {
+            LOGGER.info("Enabling automatic creation of topics");
+            TopicAdminSettings.Builder adminSettingsBuilder = TopicAdminSettings.newBuilder();
+
+            if (emulatorHostPort.isPresent()) {
+                TransportChannelProvider channelProvider =
+                        FixedTransportChannelProvider.create(GrpcTransportChannel.create(channel));
+                CredentialsProvider credentialsProvider = NoCredentialsProvider.create();
+                adminSettingsBuilder
+                        .setTransportChannelProvider(channelProvider)
+                        .setCredentialsProvider(credentialsProvider);
+            }
+
+            try {
+                topicClient = TopicAdminClient.create(adminSettingsBuilder.build());
+            } catch (IOException e) {
+                throw new DebeziumException("Error creating topic admin client", e);
+            }
+        }
+
         BatchingSettings.Builder batchingSettings = BatchingSettings.newBuilder()
                 .setDelayThreshold(Duration.ofMillis(maxDelayThresholdMs))
                 .setElementCountThreshold(maxBufferSize)
@@ -154,8 +181,20 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
                     .build());
         }
 
+
         publisherBuilder = (t) -> {
+            LOGGER.info("Creating publisher for {}", t.toString());
             try {
+                if (autoCreateTopic) {
+                    try {
+                        topicClient.getTopic(t);
+                    } catch (com.google.api.gax.rpc.NotFoundException ex) {
+                        // TODO: Is this the only / nicest way to check for existence!?
+                        LOGGER.info("Topic {} does not exist, will create it now", t);
+                        topicClient.createTopic(t);
+                    }
+                }
+
                 Publisher.Builder builder = Publisher.newBuilder(t)
                         .setEnableMessageOrdering(orderingEnabled)
                         .setBatchingSettings(batchingSettings.build())
@@ -180,8 +219,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
                 }
 
                 return builder.build();
-            }
-            catch (IOException e) {
+            } catch (IOException e) {
                 throw new DebeziumException(e);
             }
         };
@@ -194,8 +232,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
         publishers.values().forEach(publisher -> {
             try {
                 publisher.shutdown();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 LOGGER.warn("Exception while closing publisher: {}", e);
             }
         });
@@ -220,19 +257,16 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
             if (orderingEnabled) {
                 if (record.key() == null) {
                     pubsubMessage.setOrderingKey(nullKey);
-                }
-                else if (record.key() instanceof String) {
+                } else if (record.key() instanceof String) {
                     pubsubMessage.setOrderingKey((String) record.key());
-                }
-                else if (record.key() instanceof byte[]) {
+                } else if (record.key() instanceof byte[]) {
                     pubsubMessage.setOrderingKeyBytes(ByteString.copyFrom((byte[]) record.key()));
                 }
             }
 
             if (record.value() instanceof String) {
                 pubsubMessage.setData(ByteString.copyFromUtf8((String) record.value()));
-            }
-            else if (record.value() instanceof byte[]) {
+            } else if (record.value() instanceof byte[]) {
                 pubsubMessage.setData(ByteString.copyFrom((byte[]) record.value()));
             }
 
@@ -242,8 +276,7 @@ public class PubSubChangeConsumer extends BaseChangeConsumer implements Debezium
         List<String> messageIds;
         try {
             messageIds = ApiFutures.allAsList(deliveries).get();
-        }
-        catch (ExecutionException e) {
+        } catch (ExecutionException e) {
             throw new DebeziumException(e);
         }
         LOGGER.trace("Sent messages with ids: {}", messageIds);
