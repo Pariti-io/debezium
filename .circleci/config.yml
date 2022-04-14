@@ -18,14 +18,14 @@ jobs:
           command: cp debezium-server/debezium-server-pubsub/target/debezium-server-pubsub-*-SNAPSHOT.jar docker/lib/debezium-server-pubsub-1.9.0.Final.jar
       - run:
           name: Building patched Debezium docker image
-          command: cd docker && docker build . -t paritiio/debezium:1.9-1
+          command: cd docker && docker build . -t paritiio/debezium-server:1.9-1
       - setup_remote_docker:
       - run:
           name: Authenticating with Docker hub
           command: echo "$DOCKER_PASS" | docker login --username $DOCKER_USER --password-stdin
       - run:
           name: Publishing image to docker
-          command: docker push paritiio/debezium:1.9-1
+          command: docker push paritiio/debezium-server:1.9-1
 
 workflows:
   version: 2
