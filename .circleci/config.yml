@@ -19,7 +19,7 @@ jobs:
       - run:
           name: Building patched Debezium docker image
           command: cd docker && docker build . -t paritiio/debezium-server:1.9-1
-      - setup_remote_docker:
+      - setup_remote_docker
       - run:
           name: Authenticating with Docker hub
           command: echo "$DOCKER_PASS" | docker login --username $DOCKER_USER --password-stdin
