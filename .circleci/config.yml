@@ -1,0 +1,27 @@
+version: 2.1
+
+executors:
+  java-executor:
+    docker:
+      - image: cimg/openjdk:11
+    working_directory: ~/project
+
+jobs:
+  build:
+    executor: java-executor
+    steps:
+      - checkout
+      - run:
+          name: Building Debezium server pubsub module
+          command: mvn -Dquick -Dmaven.test.skip -DskipIT package -pl debezium-server/debezium-server-pubsub -am
+
+workflows:
+  version: 2
+  build-and-deploy:
+    jobs:
+      - build:
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              only: /.*/
