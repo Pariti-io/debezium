@@ -1,6 +1,4 @@
 version: 2.1
-orbs:
-  maven: circleci/maven@1.3.0
 executors:
   java-executor:
     docker:
@@ -14,7 +12,7 @@ jobs:
       - checkout
       - run:
           name: Building Debezium server pubsub module
-          command: mvn -Dquick -Dmaven.test.skip -DskipIT package -pl debezium-server/debezium-server-pubsub -am
+          command: ./mvnw -Dquick -Dmaven.test.skip -DskipIT package -pl debezium-server/debezium-server-pubsub -am
 
 workflows:
   version: 2
