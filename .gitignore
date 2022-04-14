@@ -1,3 +1,6 @@
+.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
 activemq-data/
 .idea/
 *.iml
