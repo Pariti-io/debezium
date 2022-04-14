@@ -16,10 +16,10 @@ jobs:
       - run:
           name: Copying select Debezium modules to docker workspace
           command: cp debezium-server/debezium-server-pubsub/target/debezium-server-pubsub-*-SNAPSHOT.jar docker/lib/debezium-server-pubsub-1.9.0.Final.jar
+      - setup_remote_docker
       - run:
           name: Building patched Debezium docker image
           command: cd docker && docker build . -t paritiio/debezium-server:1.9-1
-      - setup_remote_docker
       - run:
           name: Authenticating with Docker hub
           command: echo "$DOCKER_PASS" | docker login --username $DOCKER_USER --password-stdin
