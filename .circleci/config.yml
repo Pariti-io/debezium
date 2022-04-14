@@ -8,8 +8,6 @@ executors:
 jobs:
   build:
     executor: java-executor
-    context:
-      - Docker Access
     steps:
       - checkout
       - run:
@@ -33,6 +31,8 @@ workflows:
   build-and-deploy:
     jobs:
       - build:
+          context:
+            - Docker Access
           filters:
             tags:
               only: /.*/
