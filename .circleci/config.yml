@@ -8,6 +8,8 @@ executors:
 jobs:
   build:
     executor: java-executor
+    context:
+      - Docker Access
     steps:
       - checkout
       - run:
@@ -19,6 +21,12 @@ jobs:
       - run:
           name: Building patched Debezium docker image
           command: cd docker && docker build . -t paritiio/debezium:1.9-1
+      - run:
+          name: Authenticating with Docker hub
+          command: echo "$DOCKER_PASS" | docker login --username $DOCKER_USER --password-stdin
+      - run:
+          name: Publishing image to docker
+          command: docker push paritiio/debezium:1.9-1
 
 workflows:
   version: 2
