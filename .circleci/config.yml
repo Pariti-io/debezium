@@ -12,7 +12,7 @@ jobs:
       - checkout
       - run:
           name: Building Debezium server pubsub module
-          command: ./mvnw -Dquick -Dmaven.test.skip -DskipIT package -pl debezium-server/debezium-server-pubsub -am
+          command: ./mvnw -Dquick -DskipIT package -pl debezium-server/debezium-server-pubsub -am
       - run:
           name: Copying select Debezium modules to docker workspace
           command: cp debezium-server/debezium-server-pubsub/target/debezium-server-pubsub-*-SNAPSHOT.jar docker/lib/debezium-server-pubsub-1.9.0.Final.jar
